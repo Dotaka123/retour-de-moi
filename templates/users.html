@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>👥 Users ({{ users|length }})</h1>
+</div>
+
+<form class="search-bar" method="GET">
+    <input type="text" name="search" placeholder="Search by ID, username, or name..." value="{{ search }}">
+    <button type="submit" class="btn blue">Search</button>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Telegram ID</th>
+            <th>Username</th>
+            <th>Name</th>
+            <th>Balance</th>
+            <th>Joined</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for user in users %}
+        <tr>
+            <td>
+                {% if user.is_banned %}
+                    <span class="badge red">Banned</span>
+                {% else %}
+                    <span class="badge green">Active</span>
+                {% endif %}
+            </td>
+            <td><code>{{ user.telegram_id }}</code></td>
+            <td>{% if user.username %}@{{ user.username }}{% else %}-{% endif %}</td>
+            <td>{{ user.first_name or '-' }}</td>
+            <td><strong>${{ "%.2f"|format(user.balance) }}</strong></td>
+            <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+            <td>
+                {% if user.is_banned %}
+                <form class="inline-form" method="POST" action="{{ url_for('unban_user_route', telegram_id=user.telegram_id) }}">
+                    <button type="submit" class="btn green small">Unban</button>
+                </form>
+                {% else %}
+                <form class="inline-form" method="POST" action="{{ url_for('ban_user_route', telegram_id=user.telegram_id) }}">
+                    <button type="submit" class="btn red small">Ban</button>
+                </form>
+                {% endif %}
+                <form class="inline-form" method="POST" action="{{ url_for('set_balance_route', telegram_id=user.telegram_id) }}" style="margin-left: 6px;">
+                    <input type="number" step="0.01" name="amount" placeholder="New $" style="width: 80px; padding: 4px 6px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e1e4e8; font-size: 12px;" required>
+                    <button type="submit" class="btn blue small">Set</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not users %}
+        <tr><td colspan="7" style="text-align: center; color: #8b949e; padding: 40px;">No users found.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+{% endblock %}

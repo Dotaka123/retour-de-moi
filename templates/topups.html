@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Topups{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>💰 Pending Topups ({{ topups|length }})</h1>
+</div>
+
+{% if topups %}
+<table>
+    <thead>
+        <tr>
+            <th>User</th>
+            <th>Telegram ID</th>
+            <th>Amount</th>
+            <th>TXID</th>
+            <th>Binance ID</th>
+            <th>Date</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in topups %}
+        <tr>
+            <td>{% if t.username %}@{{ t.username }}{% else %}{{ t.first_name }}{% endif %}</td>
+            <td><code>{{ t.user_id }}</code></td>
+            <td><strong>${{ "%.2f"|format(t.amount) }}</strong></td>
+            <td><code>{{ t.txid if t.txid else '-' }}</code></td>
+            <td><code>{{ t.binance_id if t.binance_id else '-' }}</code></td>
+            <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+                <form class="inline-form" method="POST" action="{{ url_for('approve_topup_route', topup_id=t.id) }}">
+                    <button type="submit" class="btn green small">✅ Approve</button>
+                </form>
+                <form class="inline-form" method="POST" action="{{ url_for('reject_topup_route', topup_id=t.id) }}" style="margin-left: 6px;">
+                    <button type="submit" class="btn red small">❌ Reject</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="card" style="text-align: center; padding: 40px;">
+    <p style="color: #8b949e; font-size: 16px;">✅ No pending topup requests.</p>
+</div>
+{% endif %}
+{% endblock %}

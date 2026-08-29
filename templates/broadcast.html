@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Broadcast{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>📢 Broadcast Message</h1>
+</div>
+
+<div class="card">
+    <p style="margin-bottom: 16px; color: #8b949e;">Send a message to all registered users.</p>
+    <form method="POST">
+        <textarea name="message" placeholder="Type your broadcast message here..." required></textarea>
+        <button type="submit" class="btn green" style="margin-top: 12px;">📢 Send Broadcast</button>
+    </form>
+</div>
+{% endblock %}

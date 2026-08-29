@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Orders{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>📦 Orders ({{ orders|length }})</h1>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Order #</th>
+            <th>User</th>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>Cost</th>
+            <th>Status</th>
+            <th>Date</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for order in orders %}
+        <tr>
+            <td><code>{{ order.id }}</code></td>
+            <td><code>{{ order.user_id }}</code></td>
+            <td>{{ order.product_name }}</td>
+            <td>{{ order.quantity }}</td>
+            <td><strong>${{ "%.2f"|format(order.total_cost) }}</strong></td>
+            <td>
+                {% if order.status == 'completed' %}
+                    <span class="badge green">Completed</span>
+                {% else %}
+                    <span class="badge yellow">{{ order.status }}</span>
+                {% endif %}
+            </td>
+            <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+        {% if not orders %}
+        <tr><td colspan="7" style="text-align: center; color: #8b949e; padding: 40px;">No orders yet.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - {{ bot_name }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1117;
+            color: #e1e4e8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-box {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 40px;
+            width: 380px;
+            text-align: center;
+        }
+        .login-box h1 {
+            font-size: 22px;
+            color: #58a6ff;
+            margin-bottom: 8px;
+        }
+        .login-box p {
+            color: #8b949e;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        .login-box input[type="password"] {
+            width: 100%;
+            padding: 12px 14px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e1e4e8;
+            font-size: 15px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .login-box input[type="password"]:focus { outline: none; border-color: #58a6ff; }
+        .login-box button {
+            width: 100%;
+            padding: 12px;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .login-box button:hover { background: #2ea043; }
+        .flash {
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .flash.error { background: #3d1b1b; color: #f85149; }
+        .flash.success { background: #1b3a26; color: #3fb950; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>⚡ {{ bot_name }}</h1>
+        <p>Admin Panel Login</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+            <input type="password" name="password" placeholder="Enter admin password" autofocus required>
+            <button type="submit">Login</button>
+        </form>
+    </div>
+</body>
+</html>
