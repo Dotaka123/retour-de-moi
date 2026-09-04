@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Products{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>🏷️ Products ({{ products|length }})</h1>
+</div>
+
+<div class="search-bar">
+    <form method="get" style="display:flex; gap:10px; width:100%;">
+        <input type="text" name="search" placeholder="Search by name or ID..." value="{{ search }}">
+        <button type="submit" class="btn blue">🔍 Search</button>
+        {% if search %}
+        <a href="{{ url_for('products_list') }}" class="btn red" style="text-decoration:none;">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Most Purchased Summary -->
+{% set top_products = products | selectattr('total_purchased', 'gt', 0) | list %}
+{% if top_products %}
+<div class="card" style="margin-bottom: 20px; border-color: #58a6ff;">
+    <h3>🏆 Most Purchased Products</h3>
+    <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px;">
+        {% for p in top_products[:5] %}
+        <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 16px; min-width: 180px;">
+            <div style="font-weight: 600; color: #f0f6fc; font-size: 13px;">{{ p.name[:30] }}{% if p.name|length > 30 %}...{% endif %}</div>
+            <div style="color: #58a6ff; font-size: 20px; font-weight: 700; margin: 4px 0;">{{ p.total_purchased }}</div>
+            <div style="color: #8b949e; font-size: 11px;">orders · ${{ "%.2f"|format(p.total_revenue) }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Product Name</th>
+            <th>API Price</th>
+            <th>Custom Price ($)</th>
+            <th>Stock</th>
+            <th>Override?</th>
+            <th>Purchased</th>
+            <th>Revenue</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in products %}
+        <tr>
+            <td><code>{{ p.id }}</code></td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ p.name }}">
+                <strong>{{ p.name[:40] }}{% if p.name|length > 40 %}...{% endif %}</strong>
+            </td>
+            <td>
+                <span style="color: #8b949e;">${{ "%.4f"|format(p.api_price) }}</span>
+            </td>
+            <td>
+                <form method="post" action="{{ url_for('update_product', product_id=p.id) }}" style="display:flex; gap:6px; align-items:center;">
+                    <input type="number" name="price_usd" step="0.0001" min="0"
+                           value="{{ '%.4f'|format(p.display_price) }}"
+                           style="width: 100px; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e1e4e8; font-size: 13px;">
+                    <input type="hidden" name="stock" value="{{ p.display_stock }}">
+                    <label style="display:flex; align-items:center; gap:4px; font-size: 11px; color: #8b949e; white-space: nowrap;">
+                        <input type="checkbox" name="custom_price" {% if p.has_override %}checked{% endif %} style="accent-color: #58a6ff;">
+                        Custom
+                    </label>
+                    <button type="submit" class="btn green small">💾</button>
+                </form>
+            </td>
+            <td>
+                <form method="post" action="{{ url_for('update_product', product_id=p.id) }}" style="display:flex; gap:6px; align-items:center;">
+                    <input type="number" name="stock" min="-1"
+                           value="{{ p.display_stock }}"
+                           style="width: 70px; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e1e4e8; font-size: 13px;">
+                    <input type="hidden" name="price_usd" value="{{ '%.4f'|format(p.display_price) }}">
+                    <input type="hidden" name="custom_price" {% if p.has_override %}value="on"{% endif %}>
+                    <button type="submit" class="btn green small">💾</button>
+                </form>
+            </td>
+            <td>
+                {% if p.has_override %}
+                    <span class="badge blue">Custom</span>
+                {% else %}
+                    <span class="badge green">API</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.total_purchased > 0 %}
+                    <strong style="color: #58a6ff;">{{ p.total_purchased }}</strong>
+                    <span style="color: #8b949e; font-size: 11px;">({{ p.order_count }} orders)</span>
+                {% else %}
+                    <span style="color: #8b949e;">0</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.total_revenue > 0 %}
+                    <strong style="color: #3fb950;">${{ "%.2f"|format(p.total_revenue) }}</strong>
+                {% else %}
+                    <span style="color: #8b949e;">$0.00</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.has_override %}
+                <form method="post" action="{{ url_for('reset_product', product_id=p.id) }}" style="display:inline;">
+                    <button type="submit" class="btn red small" title="Reset to API defaults">🔄 Reset</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not products %}
+        <tr><td colspan="9" style="text-align: center; color: #8b949e; padding: 40px;">No products found.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<div style="margin-top: 16px; color: #8b949e; font-size: 12px;">
+    💡 <strong>Custom Price:</strong> Check "Custom" and set a price to override the API price for users.<br>
+    💡 <strong>Stock:</strong> Set to -1 to use API stock. Set to 0 to hide from users.<br>
+    💡 <strong>Purchased:</strong> Shows total quantity purchased and revenue from all orders.
+</div>
+{% endblock %}
