@@ -1,0 +1,466 @@
+import os
+import json
+import secrets
+import functools
+import urllib.request
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    session, flash, jsonify
+)
+from dotenv import load_dotenv
+
+import database as db
+from api_client import api_client
+from proxy_api import proxy_api, BOT_PACKAGE_IDS
+load_dotenv()
+
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "kaonty2024")
+BOT_NAME = os.getenv("BOT_NAME", "Kaonty Store")
+BINANCE_EMAIL = os.getenv("BINANCE_EMAIL", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
+
+def send_telegram_message(chat_id, text, parse_mode=None):
+    if not BOT_TOKEN or not chat_id:
+        return False
+    url = "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception:
+        # Retry without parse_mode
+        payload.pop("parse_mode", None)
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            urllib.request.urlopen(req, timeout=10)
+            return True
+        except Exception:
+            return False
+
+
+def admin_required(f):
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("admin_logged_in"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if password == ADMIN_PASSWORD:
+            session["admin_logged_in"] = True
+            flash("Logged in successfully!", "success")
+            return redirect(url_for("dashboard"))
+        flash("Invalid password!", "error")
+    return render_template("login.html", bot_name=BOT_NAME)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Logged out.", "info")
+    return redirect(url_for("login"))
+
+
+@app.route("/")
+@admin_required
+def dashboard():
+    users = db.get_all_users()
+    orders = db.get_all_orders()
+    topups = db.get_pending_topups()
+    proxy_orders = db.get_all_proxy_orders()
+    total_balance = sum(u["balance"] for u in users)
+    total_revenue = sum(o["total_cost"] for o in orders)
+    proxy_revenue = sum(float(o["sell_price"]) for o in proxy_orders)
+    total_topup_pending = sum(t["amount"] for t in topups)
+    pbal_get = _run_async(proxy_api.get_balance())
+    pbal = pbal_get.get("data") if pbal_get.get("success") else {}
+    return render_template(
+        "dashboard.html", bot_name=BOT_NAME,
+        user_count=len(users), order_count=len(orders),
+        total_balance=total_balance, total_revenue=total_revenue,
+        pending_topups=len(topups), pending_topup_amount=total_topup_pending,
+        proxy_order_count=len(proxy_orders), proxy_revenue=proxy_revenue,
+        proxy_balance_main=pbal.get("balance"),
+        proxy_balance_bonus=pbal.get("bonus_balance"),
+    )
+
+
+@app.route("/users")
+@admin_required
+def users():
+    all_users = db.get_all_users()
+    search = request.args.get("search", "").strip()
+    if search:
+        all_users = [
+            u for u in all_users
+            if search.lower() in str(u["telegram_id"])
+            or search.lower() in (u.get("username") or "").lower()
+            or search.lower() in (u.get("first_name") or "").lower()
+        ]
+    return render_template("users.html", bot_name=BOT_NAME, users=all_users, search=search)
+
+
+@app.route("/users/<int:telegram_id>/ban", methods=["POST"])
+@admin_required
+def ban_user_route(telegram_id):
+    db.ban_user(telegram_id)
+    flash("User " + str(telegram_id) + " has been banned.", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/users/<int:telegram_id>/unban", methods=["POST"])
+@admin_required
+def unban_user_route(telegram_id):
+    db.unban_user(telegram_id)
+    flash("User " + str(telegram_id) + " has been unbanned.", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/users/<int:telegram_id>/set-balance", methods=["POST"])
+@admin_required
+def set_balance_route(telegram_id):
+    try:
+        amount = float(request.form.get("amount", 0))
+        db.set_balance(telegram_id, amount)
+        flash("Balance set to $" + "{:,.2f}".format(amount) + " for user " + str(telegram_id) + ".", "success")
+    except (ValueError, TypeError):
+        flash("Invalid amount.", "error")
+    return redirect(url_for("users"))
+
+
+@app.route("/orders")
+@admin_required
+def orders():
+    all_orders = db.get_all_orders(limit=100)
+    return render_template("orders.html", bot_name=BOT_NAME, orders=all_orders)
+
+
+@app.route("/topups")
+@admin_required
+def topups():
+    pending = db.get_pending_topups()
+    return render_template("topups.html", bot_name=BOT_NAME, topups=pending)
+
+
+@app.route("/topups/<int:topup_id>/approve", methods=["POST"])
+@admin_required
+def approve_topup_route(topup_id):
+    topup = db.approve_topup(topup_id)
+    if topup:
+        msg = "\u2705 Topup Approved!\n\n"
+        msg += "Your balance has been credited with $" + "{:,.2f}".format(float(topup["amount"])) + "\n"
+        msg += "Use /balance to check your new balance."
+        send_telegram_message(topup["user_id"], msg)
+        flash("Topup of $" + "{:,.2f}".format(float(topup["amount"])) + " approved for user " + str(topup["user_id"]) + ".", "success")
+    else:
+        flash("Failed to approve topup.", "error")
+    return redirect(url_for("topups"))
+
+
+@app.route("/topups/<int:topup_id>/reject", methods=["POST"])
+@admin_required
+def reject_topup_route(topup_id):
+    topup_info = None
+    try:
+        conn = db.get_db()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM " + db.T_TOPUPS + " WHERE id = %s", (topup_id,))
+            topup_info = cur.fetchone()
+        db.return_db(conn)
+    except Exception:
+        pass
+
+    if db.reject_topup(topup_id):
+        if topup_info:
+            msg = "\u274c Topup Rejected\n\n"
+            msg += "Your topup request of $" + "{:,.2f}".format(float(topup_info["amount"])) + " has been rejected.\n"
+            msg += "Contact support if you believe this is an error."
+            send_telegram_message(topup_info["user_id"], msg)
+        flash("Topup rejected.", "success")
+    else:
+        flash("Failed to reject topup.", "error")
+    return redirect(url_for("topups"))
+
+
+NGN_TO_USD = 1550.0
+
+
+def ngn_to_usd(ngn_price):
+    return float(ngn_price) / NGN_TO_USD / 2
+
+
+@app.route("/products")
+@admin_required
+def products_list():
+    # Fetch products from API
+    import asyncio
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(api_client.get_products())
+        loop.close()
+    except Exception:
+        result = {"success": False}
+
+    api_products = []
+    if result.get("success"):
+        api_products = result["data"].get("results", [])
+        # Fetch more pages
+        page = 2
+        while True:
+            try:
+                loop = asyncio.new_event_loop()
+                page_result = loop.run_until_complete(api_client.get_products(page=page))
+                loop.close()
+            except Exception:
+                break
+            if not page_result.get("success"):
+                break
+            items = page_result["data"].get("results", [])
+            if not items:
+                break
+            api_products.extend(items)
+            page += 1
+
+    # Get overrides and most purchased
+    overrides = {o["product_id"]: o for o in db.get_all_product_overrides()}
+    most_purchased = db.get_most_purchased_products(20)
+    purchased_map = {p["product_id"]: p for p in most_purchased}
+
+    # Merge API data with overrides
+    products = []
+    for p in api_products:
+        pid = p["id"]
+        override = overrides.get(pid)
+        purchased = purchased_map.get(pid)
+
+        api_price_usd = ngn_to_usd(p["price"])
+        display_price = override["price_usd"] if override and override["custom_price"] else api_price_usd
+        display_stock = override["stock"] if override and override["stock"] >= 0 else p["stock"]
+        has_override = override is not None and override["custom_price"]
+
+        products.append({
+            "id": pid,
+            "name": p["name"],
+            "api_price": api_price_usd,
+            "display_price": float(display_price),
+            "api_stock": p["stock"],
+            "display_stock": display_stock,
+            "in_stock": p["in_stock"],
+            "has_override": has_override,
+            "category_id": p.get("category_id"),
+            "total_purchased": int(purchased["total_qty"]) if purchased else 0,
+            "order_count": int(purchased["order_count"]) if purchased else 0,
+            "total_revenue": float(purchased["total_revenue"]) if purchased else 0,
+        })
+
+    # Sort: most purchased first
+    products.sort(key=lambda x: x["total_purchased"], reverse=True)
+
+    search = request.args.get("search", "").strip()
+    if search:
+        products = [
+            p for p in products
+            if search.lower() in p["name"].lower()
+            or search in str(p["id"])
+        ]
+
+    return render_template(
+        "products.html", bot_name=BOT_NAME,
+        products=products, search=search,
+    )
+
+
+@app.route("/products/<int:product_id>/update", methods=["POST"])
+@admin_required
+def update_product(product_id):
+    try:
+        price_str = request.form.get("price_usd", "").strip()
+        stock_str = request.form.get("stock", "").strip()
+        custom_price = request.form.get("custom_price") == "on"
+
+        price_usd = float(price_str) if price_str else None
+        stock = int(stock_str) if stock_str else None
+
+        db.upsert_product_override(
+            product_id, price_usd=price_usd,
+            stock=stock, custom_price=custom_price
+        )
+        flash(f"Product #{product_id} updated successfully.", "success")
+    except (ValueError, TypeError) as e:
+        flash(f"Invalid input: {e}", "error")
+    return redirect(url_for("products_list"))
+
+
+@app.route("/products/<int:product_id>/reset", methods=["POST"])
+@admin_required
+def reset_product(product_id):
+    db.delete_product_override(product_id)
+    flash(f"Product #{product_id} reset to API defaults.", "success")
+    return redirect(url_for("products_list"))
+
+
+@app.route("/broadcast", methods=["GET", "POST"])
+@admin_required
+def broadcast():
+    if request.method == "POST":
+        message = request.form.get("message", "").strip()
+        if not message:
+            flash("Message cannot be empty.", "error")
+            return redirect(url_for("broadcast"))
+        users = db.get_all_users()
+        sent = 0
+        for u in users:
+            result = send_telegram_message(u["telegram_id"], message)
+            if result:
+                sent += 1
+        flash("Broadcast sent to " + str(sent) + "/" + str(len(users)) + " users.", "success")
+        return redirect(url_for("dashboard"))
+    return render_template("broadcast.html", bot_name=BOT_NAME)
+
+
+import asyncio
+
+
+def _run_async(coro):
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(coro)
+        loop.close()
+        return result
+    except Exception:
+        return {"success": False}
+
+
+def _fetch_proxy_plans():
+    """Fetch API base plans for the packages sold in the bot, merged with admin sell prices."""
+    packages = _run_async(proxy_api.get_packages())
+    pkg_map = {p["id"]: p["package_name"] for p in (packages.get("data") or [])}
+
+    saved = {f"{r['pkg_id']}_{r['days']}_{r['hours']}": r for r in db.get_all_proxy_prices()}
+
+    plans = []
+    for pkg_id in BOT_PACKAGE_IDS:
+        prices = _run_async(proxy_api.get_prices(pkg_id))
+        if not prices.get("success"):
+            continue
+        for p in prices.get("data") or []:
+            days = int(float(p.get("days", 0) or 0))
+            hours = int(p.get("hours", 0) or 0)
+            base = float(p.get("price", 0))
+            key = f"{pkg_id}_{days}_{hours}"
+            saved_row = saved.get(key)
+            plans.append({
+                "pkg_id": pkg_id,
+                "package_name": pkg_map.get(pkg_id, f"Package {pkg_id}"),
+                "days": days,
+                "hours": hours,
+                "base_price": base,
+                "sell_price": float(saved_row["sell_price"]) if saved_row and saved_row["sell_price"] is not None else base,
+                "enabled": bool(saved_row["enabled"]) if saved_row else True,
+                "has_saved": bool(saved_row),
+            })
+    plans.sort(key=lambda x: (x["pkg_id"], x["days"], x["hours"]))
+    return plans
+
+
+@app.route("/proxy-pricing", methods=["GET", "POST"])
+@admin_required
+def proxy_pricing():
+    if request.method == "POST":
+        pkg_id = request.form.get("pkg_id")
+        days = request.form.get("days")
+        hours = request.form.get("hours")
+        base_price = request.form.get("base_price")
+        sell_price = request.form.get("sell_price")
+        enabled = request.form.get("enabled") == "on"
+        try:
+            db.upsert_proxy_price(
+                int(pkg_id), int(days), int(hours),
+                float(base_price or 0), float(sell_price or 0), enabled
+            )
+            flash("Proxy plan updated.", "success")
+        except (ValueError, TypeError):
+            flash("Invalid input.", "error")
+        return redirect(url_for("proxy_pricing"))
+
+    plans = _fetch_proxy_plans()
+    return render_template("proxy_pricing.html", bot_name=BOT_NAME, plans=plans)
+
+
+@app.route("/proxy-orders")
+@admin_required
+def proxy_orders():
+    all_orders = db.get_all_proxy_orders(limit=200)
+    return render_template("proxy_orders.html", bot_name=BOT_NAME, orders=all_orders)
+
+
+@app.route("/proxy-topup", methods=["GET", "POST"])
+@admin_required
+def proxy_topup():
+    """Show the mega-panel balance and allow the admin to recharge it via API."""
+    balance = _run_async(proxy_api.get_balance())
+    bal = balance.get("data") if balance.get("success") else {}
+    ctx = {
+        "bot_name": BOT_NAME,
+        "balance": bal.get("balance"),
+        "bonus_balance": bal.get("bonus_balance"),
+        "pay_url": None,
+        "new_balance": None,
+        "error": None,
+        "amount": request.form.get("amount", ""),
+        "method": request.form.get("method", "cryptomus"),
+    }
+    if request.method == "POST":
+        try:
+            amount = float(request.form.get("amount") or 0)
+        except ValueError:
+            amount = 0
+        ctx["amount"] = amount
+        if amount <= 0:
+            ctx["error"] = "Invalid amount."
+            return render_template("proxy_topup.html", **ctx)
+        if ctx["method"] == "cryptomus":
+            res = _run_async(proxy_api.recharge_cryptomus(amount))
+            if res.get("success"):
+                data = res.get("data") or {}
+                ctx["pay_url"] = data.get("pay_url")
+            else:
+                ctx["error"] = res.get("detail") or "Recharge failed."
+        elif ctx["method"] == "payeer":
+            trx_id = request.form.get("trx_id", "").strip()
+            if not trx_id:
+                ctx["error"] = "TRX ID is required for Payeer."
+            else:
+                res = _run_async(proxy_api.recharge_payeer(amount, trx_id))
+                if res.get("success"):
+                    ctx["new_balance"] = res.get("data") or {}
+                else:
+                    ctx["error"] = res.get("detail") or "Recharge failed."
+        else:
+            ctx["error"] = "Unknown payment method."
+    return render_template("proxy_topup.html", **ctx)
+
+
+def run_web_admin(port=5000):
+    db.init_db()
+    print("Admin panel running at http://localhost:" + str(port))
+    print("Password: " + ADMIN_PASSWORD)
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+
+if __name__ == "__main__":
+    run_web_admin()
