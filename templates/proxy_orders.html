@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Proxy Orders{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>🖧 Proxy Orders ({{ orders|length }})</h1>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>User</th>
+            <th>Package</th>
+            <th>Country</th>
+            <th>Protocol</th>
+            <th>Duration</th>
+            <th>Sale ($)</th>
+            <th>Date</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for o in orders %}
+        <tr>
+            <td><code>{{ o.id }}</code></td>
+            <td><code>{{ o.user_id }}</code></td>
+            <td><strong>{{ o.package_name }}</strong></td>
+            <td>{{ o.country_name }}</td>
+            <td>{{ o.protocol|upper }}</td>
+            <td>
+                {% if o.plan_days > 0 %}{{ o.plan_days }}j{% else %}{{ o.plan_hours }}h{% endif %}
+            </td>
+            <td><strong style="color: #3fb950;">${{ "%.4f"|format(o.sell_price) }}</strong></td>
+            <td style="color: #8b949e; font-size: 12px;">{{ o.created_at }}</td>
+        </tr>
+        <tr style="background: #0d1117;">
+            <td></td>
+            <td colspan="6" style="padding-top: 0; color: #58a6ff; font-size: 13px; word-break: break-all;">
+                {{ o.proxy_details or 'No proxy details' }}
+            </td>
+            <td>Status: <span class="badge green">{{ o.status }}</span></td>
+        </tr>
+        {% endfor %}
+        {% if not orders %}
+        <tr><td colspan="8" style="text-align: center; color: #8b949e; padding: 40px;">No proxy orders yet.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<div style="margin-top: 16px; color: #8b949e; font-size: 12px;">
+    💡 Proxy details (username, IP, port, password, expiry) are shown in the row below each order.
+</div>
+{% endblock %}

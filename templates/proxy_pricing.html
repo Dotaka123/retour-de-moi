@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Proxy Pricing{% endblock %}
+{% block content %}
+<div class="header">
+    <h1>🖧 Proxy Pricing</h1>
+</div>
+
+<p style="color: #8b949e; margin-bottom: 20px;">
+    Set the selling price for each proxy plan. Users pay this price from their wallet when buying a proxy in the bot.
+    Unchecking <strong>Enabled</strong> hides the plan from the bot. Base price is the cost charged to you by the upstream API.
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Package</th>
+            <th>Duration</th>
+            <th>Base Price ($)</th>
+            <th>Sell Price ($)</th>
+            <th>Enabled</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in plans %}
+        <tr>
+            <td><strong>{{ p.package_name }}</strong></td>
+            <td>
+                {% if p.days > 0 %}{{ p.days }} day(s){% else %}{{ p.hours }} hour(s){% endif %}
+            </td>
+            <td style="color: #8b949e;">${{ "%.4f"|format(p.base_price) }}</td>
+            <td>
+                <form method="post" action="{{ url_for('proxy_pricing') }}" style="display:flex; gap:6px; align-items:center;">
+                    <input type="hidden" name="pkg_id" value="{{ p.pkg_id }}">
+                    <input type="hidden" name="days" value="{{ p.days }}">
+                    <input type="hidden" name="hours" value="{{ p.hours }}">
+                    <input type="hidden" name="base_price" value="{{ '%.4f'|format(p.base_price) }}">
+                    <input type="number" name="sell_price" step="0.0001" min="0"
+                           value="{{ '%.4f'|format(p.sell_price) }}"
+                           style="width: 110px; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e1e4e8; font-size: 13px;">
+                    <label style="display:flex; align-items:center; gap:4px; font-size: 12px; color: #8b949e; white-space: nowrap;">
+                        <input type="checkbox" name="enabled" {% if p.enabled %}checked{% endif %} style="accent-color: #58a6ff;">
+                    </label>
+                    <button type="submit" class="btn green small">💾</button>
+                </form>
+            </td>
+            <td>
+                {% if p.enabled %}
+                    <span class="badge green">Enabled</span>
+                {% else %}
+                    <span class="badge red">Hidden</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if p.has_saved %}
+                <span class="badge blue">Custom</span>
+                {% else %}
+                <span class="badge green">Default</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not plans %}
+        <tr><td colspan="6" style="text-align: center; color: #8b949e; padding: 40px;">No plans available. Check the proxy API credentials.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<div style="margin-top: 16px; color: #8b949e; font-size: 12px;">
+    💡 Only <strong>Golden</strong> and <strong>Silver</strong> packages are sold in the bot.<br>
+    💡 If no sell price is set, the base price is used by default.
+</div>
+{% endblock %}
